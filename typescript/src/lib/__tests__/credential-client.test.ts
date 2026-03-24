@@ -268,6 +268,169 @@ describe("CredentialClient", () => {
 		});
 	});
 
+	describe("issueCredential", () => {
+		it("returns exercise result", async () => {
+			mockFetchResponse({ exerciseResult: "cred-cid-1" });
+
+			const result = await client.issueCredential("issuer-cid-1", {
+				subject: "alice",
+				credentialType: "KYC",
+				claims: { name: "Alice", country: "CH" },
+				expiresAt: "2027-01-01T00:00:00Z",
+			});
+
+			expect(result).toBe("cred-cid-1");
+		});
+
+		it("sends correct template, choice, and serialized claims", async () => {
+			mockFetchResponse({ exerciseResult: "cred-cid-1" });
+
+			await client.issueCredential("issuer-cid-1", {
+				subject: "alice",
+				credentialType: "KYC",
+				claims: { name: "Alice" },
+				expiresAt: "2027-01-01T00:00:00Z",
+			});
+
+			const fetchCall = vi.mocked(fetch).mock.calls[0];
+			const body = JSON.parse(fetchCall[1]!.body as string);
+			expect(body.templateId).toBe("Credentials:CredentialIssuer");
+			expect(body.contractId).toBe("issuer-cid-1");
+			expect(body.choice).toBe("IssueCredential");
+			expect(body.argument.subject).toBe("alice");
+			expect(body.argument.credentialType).toBe("KYC");
+			expect(body.argument.claims).toBe('{"name":"Alice"}');
+			expect(body.argument.expiresAt).toBe("2027-01-01T00:00:00Z");
+		});
+	});
+
+	describe("createComplianceGate", () => {
+		it("returns contract ID", async () => {
+			mockFetchResponse({ contractId: "gate-cid-1" });
+
+			const result = await client.createComplianceGate({
+				gateName: "DeFi Access",
+				requiredCredentialTypes: ["KYC", "AML_CLEARED"],
+				description: "Requires KYC and AML clearance",
+			});
+
+			expect(result).toBe("gate-cid-1");
+		});
+
+		it("sends correct payload with operator from config", async () => {
+			mockFetchResponse({ contractId: "gate-cid-1" });
+
+			await client.createComplianceGate({
+				gateName: "DeFi Access",
+				requiredCredentialTypes: ["KYC"],
+				description: "Test gate",
+			});
+
+			const fetchCall = vi.mocked(fetch).mock.calls[0];
+			const body = JSON.parse(fetchCall[1]!.body as string);
+			expect(body.templateId).toBe("Credentials:ComplianceGate");
+			expect(body.payload.operator).toBe("test-party");
+			expect(body.payload.gateName).toBe("DeFi Access");
+			expect(body.payload.requiredCredentialTypes).toEqual(["KYC"]);
+		});
+	});
+
+	describe("checkCompliance", () => {
+		it("returns true when compliant", async () => {
+			mockFetchResponse({ exerciseResult: true });
+
+			const result = await client.checkCompliance(
+				"gate-cid-1",
+				"alice",
+				["cred-1", "cred-2"],
+			);
+
+			expect(result).toBe(true);
+		});
+
+		it("returns false when not compliant", async () => {
+			mockFetchResponse({ exerciseResult: false });
+
+			const result = await client.checkCompliance(
+				"gate-cid-1",
+				"bob",
+				["cred-1"],
+			);
+
+			expect(result).toBe(false);
+		});
+
+		it("sends correct choice and arguments", async () => {
+			mockFetchResponse({ exerciseResult: true });
+
+			await client.checkCompliance("gate-cid-1", "alice", ["c1", "c2"]);
+
+			const fetchCall = vi.mocked(fetch).mock.calls[0];
+			const body = JSON.parse(fetchCall[1]!.body as string);
+			expect(body.templateId).toBe("Credentials:ComplianceGate");
+			expect(body.contractId).toBe("gate-cid-1");
+			expect(body.choice).toBe("CheckCompliance");
+			expect(body.argument.subject).toBe("alice");
+			expect(body.argument.credentialCids).toEqual(["c1", "c2"]);
+		});
+	});
+
+	describe("requestPresentation", () => {
+		it("returns contract ID", async () => {
+			mockFetchResponse({ contractId: "pres-cid-1" });
+
+			const result = await client.requestPresentation({
+				subject: "alice",
+				requiredCredentials: ["KYC", "AML_CLEARED"],
+				purpose: "DeFi onboarding",
+				expiresAt: "2026-04-01T00:00:00Z",
+			});
+
+			expect(result).toBe("pres-cid-1");
+		});
+
+		it("sends correct payload with verifier from config", async () => {
+			mockFetchResponse({ contractId: "pres-cid-1" });
+
+			await client.requestPresentation({
+				subject: "bob",
+				requiredCredentials: ["KYC"],
+				purpose: "Identity check",
+				expiresAt: "2026-04-01T00:00:00Z",
+			});
+
+			const fetchCall = vi.mocked(fetch).mock.calls[0];
+			const body = JSON.parse(fetchCall[1]!.body as string);
+			expect(body.templateId).toBe("Credentials:PresentationRequest");
+			expect(body.payload.verifier).toBe("test-party");
+			expect(body.payload.subject).toBe("bob");
+			expect(body.payload.requiredCredentials).toEqual(["KYC"]);
+			expect(body.payload.purpose).toBe("Identity check");
+			expect(body.payload.expiresAt).toBe("2026-04-01T00:00:00Z");
+		});
+	});
+
+	describe("registerIssuer (payload)", () => {
+		it("sends correct template and payload", async () => {
+			mockFetchResponse({ contractId: "issuer-cid-1" });
+
+			await client.registerIssuer({
+				name: "Test Issuer",
+				jurisdiction: "CH",
+				issuerType: "KYC",
+			});
+
+			const fetchCall = vi.mocked(fetch).mock.calls[0];
+			const body = JSON.parse(fetchCall[1]!.body as string);
+			expect(body.templateId).toBe("Credentials:CredentialIssuer");
+			expect(body.payload.issuer).toBe("test-party");
+			expect(body.payload.name).toBe("Test Issuer");
+			expect(body.payload.jurisdiction).toBe("CH");
+			expect(body.payload.issuerType).toBe("KYC");
+			expect(body.payload.active).toBe(true);
+		});
+	});
+
 	describe("error handling", () => {
 		it("throws on non-OK response", async () => {
 			mockFetchResponse(null, false, 401);
