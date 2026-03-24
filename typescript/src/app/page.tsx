@@ -10,21 +10,56 @@ import {
 	Clock,
 	FileCheck,
 	Key,
+	Loader2,
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
 	UserCheck,
 	XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Tab = "credentials" | "issuers" | "verify" | "compliance";
 
+const CREDENTIAL_TYPES: CredentialType[] = [
+	"KYC",
+	"AML_CLEARED",
+	"ACCREDITED_INVESTOR",
+	"SANCTIONS_CLEARED",
+];
+
+interface Toast {
+	id: number;
+	type: "success" | "error";
+	message: string;
+}
+
+let toastId = 0;
+
 export default function CredentialsPage() {
 	const [activeTab, setActiveTab] = useState<Tab>("credentials");
-	const credentials = getDemoCredentials();
-	const issuers = getDemoIssuers();
+	const [credentials, setCredentials] = useState<VerifiableCredential[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [toasts, setToasts] = useState<Toast[]>([]);
 
+	const addToast = useCallback((type: "success" | "error", message: string) => {
+		const id = ++toastId;
+		setToasts((prev) => [...prev, { id, type, message }]);
+		setTimeout(() => {
+			setToasts((prev) => prev.filter((t) => t.id !== id));
+		}, 4000);
+	}, []);
+
+	useEffect(() => {
+		setLoading(true);
+		try {
+			setCredentials(getDemoCredentials());
+		} finally {
+			setLoading(false);
+		}
+	}, []);
+
+	const issuers = getDemoIssuers();
 	const validCount = credentials.filter(
 		(c) => !c.revoked && new Date(c.expiresAt) > new Date(),
 	).length;
@@ -32,6 +67,27 @@ export default function CredentialsPage() {
 
 	return (
 		<div className="min-h-screen">
+			{/* Toast notifications */}
+			<div className="fixed top-4 right-4 z-50 space-y-2">
+				{toasts.map((toast) => (
+					<div
+						key={toast.id}
+						className={`flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+							toast.type === "success"
+								? "bg-[var(--green)] text-black"
+								: "bg-[var(--red)] text-white"
+						}`}
+					>
+						{toast.type === "success" ? (
+							<CheckCircle size={16} />
+						) : (
+							<XCircle size={16} />
+						)}
+						{toast.message}
+					</div>
+				))}
+			</div>
+
 			<header className="border-b border-[var(--border)] bg-[var(--card)]">
 				<div className="max-w-6xl mx-auto px-4 py-4">
 					<div className="flex items-center justify-between">
@@ -45,12 +101,18 @@ export default function CredentialsPage() {
 							</div>
 						</div>
 						<div className="flex items-center gap-3 text-sm">
-							<span className="badge badge-valid">
-								<CheckCircle size={12} /> {validCount} Valid
-							</span>
-							<span className="badge badge-revoked">
-								<XCircle size={12} /> {revokedCount} Revoked
-							</span>
+							{loading ? (
+								<Loader2 size={16} className="animate-spin text-[var(--blue)]" />
+							) : (
+								<>
+									<span className="badge badge-valid">
+										<CheckCircle size={12} /> {validCount} Valid
+									</span>
+									<span className="badge badge-revoked">
+										<XCircle size={12} /> {revokedCount} Revoked
+									</span>
+								</>
+							)}
 						</div>
 					</div>
 
@@ -82,10 +144,10 @@ export default function CredentialsPage() {
 
 			<main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
 				{activeTab === "credentials" && (
-					<CredentialsList credentials={credentials} />
+					<CredentialsList credentials={credentials} loading={loading} />
 				)}
 				{activeTab === "issuers" && <IssuersList />}
-				{activeTab === "verify" && <VerifyPanel />}
+				{activeTab === "verify" && <VerifyPanel onNotify={addToast} />}
 				{activeTab === "compliance" && <CompliancePanel />}
 			</main>
 
@@ -105,9 +167,22 @@ export default function CredentialsPage() {
 
 function CredentialsList({
 	credentials,
+	loading,
 }: {
 	credentials: VerifiableCredential[];
+	loading: boolean;
 }) {
+	if (loading) {
+		return (
+			<div className="flex items-center justify-center py-12">
+				<Loader2 size={24} className="animate-spin text-[var(--blue)]" />
+				<span className="ml-2 text-sm text-[var(--muted)]">
+					Loading credentials...
+				</span>
+			</div>
+		);
+	}
+
 	return (
 		<div className="space-y-4">
 			<div className="flex items-center justify-between">
@@ -262,7 +337,95 @@ function IssuersList() {
 	);
 }
 
-function VerifyPanel() {
+interface VerifyFormState {
+	credentialId: string;
+	subjectParty: string;
+	selectedTypes: CredentialType[];
+	purpose: string;
+}
+
+function VerifyPanel({
+	onNotify,
+}: {
+	onNotify: (type: "success" | "error", message: string) => void;
+}) {
+	const [verifyId, setVerifyId] = useState("");
+	const [verifying, setVerifying] = useState(false);
+	const [verifyResult, setVerifyResult] = useState<{
+		isValid: boolean;
+		reason: string;
+	} | null>(null);
+
+	const [subjectParty, setSubjectParty] = useState("");
+	const [selectedTypes, setSelectedTypes] = useState<Set<CredentialType>>(new Set());
+	const [purpose, setPurpose] = useState("");
+	const [requesting, setRequesting] = useState(false);
+
+	const handleVerify = async () => {
+		if (!verifyId.trim()) {
+			onNotify("error", "Please enter a credential contract ID");
+			return;
+		}
+
+		setVerifying(true);
+		setVerifyResult(null);
+		try {
+			// Demo simulation
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+			const isValid = !verifyId.includes("revoked");
+			setVerifyResult({
+				isValid,
+				reason: isValid ? "Credential is valid and not expired" : "Credential has been revoked",
+			});
+			onNotify(
+				isValid ? "success" : "error",
+				isValid ? "Credential verified successfully" : "Credential verification failed",
+			);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Verification failed";
+			onNotify("error", message);
+		} finally {
+			setVerifying(false);
+		}
+	};
+
+	const toggleType = (type: CredentialType) => {
+		setSelectedTypes((prev) => {
+			const next = new Set(prev);
+			if (next.has(type)) {
+				next.delete(type);
+			} else {
+				next.add(type);
+			}
+			return next;
+		});
+	};
+
+	const handleRequestPresentation = async () => {
+		if (!subjectParty.trim()) {
+			onNotify("error", "Please enter a subject party ID");
+			return;
+		}
+		if (selectedTypes.size === 0) {
+			onNotify("error", "Please select at least one credential type");
+			return;
+		}
+
+		setRequesting(true);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 800));
+			onNotify("success", `Presentation request sent to ${subjectParty}`);
+			setSubjectParty("");
+			setSelectedTypes(new Set());
+			setPurpose("");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : "Request failed";
+			onNotify("error", message);
+		} finally {
+			setRequesting(false);
+		}
+	};
+
 	return (
 		<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 			<div className="card">
@@ -281,12 +444,44 @@ function VerifyPanel() {
 							id="cred-id"
 							type="text"
 							placeholder="00xx...xxxx"
+							value={verifyId}
+							onChange={(e) => {
+								setVerifyId(e.target.value);
+								setVerifyResult(null);
+							}}
 							className="w-full bg-[var(--bg)] border border-[var(--border)] rounded px-3 py-2 text-sm font-mono"
 						/>
 					</div>
-					<button type="button" className="w-full bg-[var(--blue)] text-white py-3 rounded font-medium text-sm">
-						Verify On-Chain
+
+					<button
+						type="button"
+						onClick={handleVerify}
+						disabled={verifying}
+						className="w-full bg-[var(--blue)] text-white py-3 rounded font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+					>
+						{verifying && <Loader2 size={16} className="animate-spin" />}
+						{verifying ? "Verifying..." : "Verify On-Chain"}
 					</button>
+
+					{verifyResult && (
+						<div
+							className={`p-3 rounded border text-sm ${
+								verifyResult.isValid
+									? "bg-green-900/20 border-green-700 text-green-400"
+									: "bg-red-900/20 border-red-700 text-red-400"
+							}`}
+						>
+							<div className="flex items-center gap-2 font-medium mb-1">
+								{verifyResult.isValid ? (
+									<CheckCircle size={16} />
+								) : (
+									<XCircle size={16} />
+								)}
+								{verifyResult.isValid ? "Valid" : "Invalid"}
+							</div>
+							<p className="text-xs opacity-80">{verifyResult.reason}</p>
+						</div>
+					)}
 				</div>
 
 				<div className="mt-6 p-4 bg-[var(--bg)] rounded border border-[var(--border)]">
@@ -315,6 +510,8 @@ function VerifyPanel() {
 							id="subject-party"
 							type="text"
 							placeholder="Party ID"
+							value={subjectParty}
+							onChange={(e) => setSubjectParty(e.target.value)}
 							className="w-full bg-[var(--bg)] border border-[var(--border)] rounded px-3 py-2 text-sm font-mono"
 						/>
 					</div>
@@ -323,14 +520,17 @@ function VerifyPanel() {
 							Required Credentials
 						</label>
 						<div className="flex flex-wrap gap-2">
-							{["KYC", "AML_CLEARED", "ACCREDITED_INVESTOR", "SANCTIONS_CLEARED"].map(
-								(type) => (
-									<label key={type} className="flex items-center gap-1.5 text-xs cursor-pointer">
-										<input type="checkbox" className="accent-[var(--blue)]" />
-										{type}
-									</label>
-								),
-							)}
+							{CREDENTIAL_TYPES.map((type) => (
+								<label key={type} className="flex items-center gap-1.5 text-xs cursor-pointer">
+									<input
+										type="checkbox"
+										className="accent-[var(--blue)]"
+										checked={selectedTypes.has(type)}
+										onChange={() => toggleType(type)}
+									/>
+									{type}
+								</label>
+							))}
 						</div>
 					</div>
 					<div>
@@ -341,11 +541,19 @@ function VerifyPanel() {
 							id="purpose"
 							type="text"
 							placeholder="Account onboarding, trade access..."
+							value={purpose}
+							onChange={(e) => setPurpose(e.target.value)}
 							className="w-full bg-[var(--bg)] border border-[var(--border)] rounded px-3 py-2 text-sm"
 						/>
 					</div>
-					<button type="button" className="w-full bg-[var(--purple)] text-white py-3 rounded font-medium text-sm">
-						Send Presentation Request
+					<button
+						type="button"
+						onClick={handleRequestPresentation}
+						disabled={requesting}
+						className="w-full bg-[var(--purple)] text-white py-3 rounded font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+					>
+						{requesting && <Loader2 size={16} className="animate-spin" />}
+						{requesting ? "Sending..." : "Send Presentation Request"}
 					</button>
 				</div>
 			</div>
