@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "bunx biome check --write ."
+    "lint": "bunx biome check --write .",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "^15.3.0",
@@ -20,6 +21,7 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "typescript": "^5.8.0",
+    "vitest": "^3.1.0",
     "@biomejs/biome": "^1.9.4",
     "tailwindcss": "^4.1.0",
     "@tailwindcss/postcss": "^4.1.0",

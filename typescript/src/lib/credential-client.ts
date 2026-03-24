@@ -8,7 +8,7 @@ import type {
 	VerifiableCredential,
 } from "@/types/credentials";
 
-function safeParseClaims(raw: string): Record<string, unknown> {
+export function safeParseClaims(raw: string): Record<string, unknown> {
 	try {
 		return JSON.parse(raw);
 	} catch {
