@@ -1,0 +1,17 @@
+sdk-version: 3.4.0
+name: canton-credentials
+version: 0.1.0
+source: .
+init-script: CredentialsTest:testCredentialLifecycle
+parties:
+  - SwissKYC
+  - Alice
+  - Bob
+  - CantonExchange
+build-options:
+  - --ghc-option
+  - -Werror
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
