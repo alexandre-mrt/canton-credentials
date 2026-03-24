@@ -8,6 +8,14 @@ import type {
 	VerifiableCredential,
 } from "@/types/credentials";
 
+function safeParseClaims(raw: string): Record<string, unknown> {
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return { _raw: raw };
+	}
+}
+
 interface ApiConfig {
 	baseUrl: string;
 	token: string;
@@ -101,7 +109,7 @@ export class CredentialClient {
 			issuer: r.payload.issuer as string,
 			subject: r.payload.subject as string,
 			credentialType: r.payload.credentialType as CredentialType,
-			claims: JSON.parse(r.payload.claims as string),
+			claims: safeParseClaims(r.payload.claims as string),
 			issuedAt: r.payload.issuedAt as string,
 			expiresAt: r.payload.expiresAt as string,
 			revoked: r.payload.revoked as boolean,
